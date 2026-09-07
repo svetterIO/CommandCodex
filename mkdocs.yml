@@ -1,0 +1,88 @@
+site_name: CommandCodex
+site_description: Command-focused security cheat sheets for fast, practical reference across tools, techniques, and workflows.
+site_url: !ENV [MKDOCS_SITE_URL, "http://localhost:8000/"]
+repo_name: commandcodex
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Cheat sheets:
+      - Nmap: cheatsheets/nmap.md
+  - Source editor: source-editor.md
+
+hooks:
+  - hooks/in_memory_content.py
+
+extra_javascript:
+  - assets/js/variables.js
+  - assets/vendor/mermaid.min.js
+
+extra_css:
+  - assets/css/variables.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+plugins:
+  - search
+  - panzoom:
+      full_screen: true
+      always_show_hint: true
+      hint_location: top
+      key: alt
+      initial_zoom_level: 1.15
+  # Keep encryptcontent LAST: it must post-process the generated search index.
+  - encryptcontent:
+      global_password: !ENV CONTENT_PASSWORD
+      search_index: dynamically
+      password_button: true
+      password_button_text: Unlock
+      title_prefix: ""
+      summary: "This cheat sheet is encrypted. Enter the password to decrypt it in this browser."
+      placeholder: "Password"
+      decryption_failure_message: "Incorrect password."
+      encryption_info_message: "Protected page content and protected search entries remain encrypted on disk."
+      form_class: "md-content__inner md-typeset"
+      input_class: "md-input"
+      button_class: "md-button md-button--primary"
+      remember_keys: true
+      remember_password: false
+      remember_prefix: "commandcodex_"
+      encrypted_something:
+        md-nav--secondary: [nav, class]
+      webcrypto: true
+      cache_file: ""
+      threshold_warning_min_entropy: 0
+
+strict: true

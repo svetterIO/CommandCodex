@@ -1,0 +1,12 @@
+.venv/
+site/
+.env
+docs/assets/vendor/mermaid.min.js
+__pycache__/
+*.pyc
+encryptcontent.cache
+
+# Never commit plaintext protected authoring content.
+content/**/*.md
+plaintext/
+*.decrypted.md

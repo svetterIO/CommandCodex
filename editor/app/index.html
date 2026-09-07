@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Encrypted Markdown Source Editor</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow"><a href="../">← CommandCodex</a></p>
+      <h1>Encrypted Markdown Source Editor</h1>
+      <p class="lede">Open any <code>content/**/*.md.enc.json</code> source, decrypt it only in this browser, edit the raw Markdown, and write back a fresh AES-256-GCM ciphertext.</p>
+    </header>
+
+    <aside class="notice">
+      <strong>No plaintext upload.</strong> The host only serves this editor. Selected encrypted files are read locally by the browser. PBKDF2, AES-GCM decryption/encryption and editing happen in browser memory. This app does not use localStorage, IndexedDB, a service worker, analytics, fetch/XHR, or remote scripts.
+    </aside>
+
+    <section class="card" id="dropzone">
+      <div class="card-head">
+        <div>
+          <h2>1. Open or create source</h2>
+          <p>Current format: AES-256-GCM + PBKDF2-HMAC-SHA256. Legacy source files from the earlier Nmap-only repo can also be opened and are migrated to the generic source label when saved.</p>
+        </div>
+        <div class="actions">
+          <button id="open-file" class="primary">Open encrypted file</button>
+          <button id="new-source">New source</button>
+          <button id="upload-file">Upload fallback</button>
+          <input id="file-input" type="file" accept=".json,application/json" hidden>
+        </div>
+      </div>
+      <p class="drop">or drag a <code>.md.enc.json</code> file onto this panel</p>
+      <p id="picker-note" class="small" hidden>Your browser does not expose direct file handles. You can still edit normally; re-encryption will download a replacement ciphertext file.</p>
+    </section>
+
+    <section class="card" id="loaded-panel" hidden>
+      <h2>2. Unlock</h2>
+      <dl class="meta">
+        <div><dt>File</dt><dd id="filename"></dd></div>
+        <div><dt>Format</dt><dd id="metadata"></dd></div>
+      </dl>
+      <label for="password">Source password</label>
+      <div class="password-row">
+        <input id="password" type="password" autocomplete="off" spellcheck="false" placeholder="Source password">
+        <button id="unlock" class="primary">Decrypt in browser</button>
+      </div>
+    </section>
+
+    <section class="card editor-card" id="editor-panel" hidden>
+      <div class="card-head">
+        <div>
+          <h2>3. Edit raw Markdown</h2>
+          <p>The textarea contains decrypted source only while this tab remains unlocked.</p>
+        </div>
+        <button id="lock" class="danger">Lock &amp; clear</button>
+      </div>
+
+      <textarea id="editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Raw Markdown editor"></textarea>
+
+      <div class="reencrypt">
+        <h2>4. Re-encrypt</h2>
+        <label class="check"><input id="same-password" type="checkbox" checked> Re-use the unlock password</label>
+        <div class="password-grid">
+          <label>New password<input id="new-password" type="password" autocomplete="new-password" disabled></label>
+          <label>Confirm new password<input id="confirm-password" type="password" autocomplete="new-password" disabled></label>
+        </div>
+        <div class="actions">
+          <button id="save-file" class="primary">Encrypt &amp; save current file</button>
+          <button id="save-as">Encrypt &amp; save as…</button>
+        </div>
+        <p class="small">Every save generates a fresh 16-byte salt and 12-byte IV and uses 600,000 PBKDF2 iterations. For sources built by this repository, use the same password configured as <code>CONTENT_PASSWORD</code>.</p>
+      </div>
+    </section>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <footer>
+      <p>Plaintext necessarily exists in browser/process memory while unlocked and can still be visible to memory scanners, swap/hibernation, screenshots, clipboard tools, or browser crash diagnostics.</p>
+    </footer>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

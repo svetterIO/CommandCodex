@@ -1,0 +1,98 @@
+name: Deploy CommandCodex
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Install patched Material 9.7.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch 9.7.1 \
+            https://github.com/squidfunk/mkdocs-material.git /tmp/mkdocs-material
+          cd /tmp/mkdocs-material
+          curl -fsSL \
+            https://raw.githubusercontent.com/unverbuggt/mkdocs-encryptcontent-plugin/version3/patches/material_bundle9_7.patch \
+            -o /tmp/material_bundle9_7.patch
+          patch -p0 < /tmp/material_bundle9_7.patch
+          npm install
+          npm run build
+          python -m pip install --no-cache-dir .
+
+      - name: Install project dependencies
+        run: python -m pip install --no-cache-dir -r requirements.txt
+
+      - name: Test browser editor crypto
+        run: npm --prefix editor test
+
+      - name: Fetch local Mermaid runtime
+        run: python tools/fetch_vendor.py
+
+      - name: Build encrypted site and integrated editor
+        shell: bash
+        env:
+          CONTENT_PASSWORD: ${{ secrets.CONTENT_PASSWORD }}
+          MKDOCS_SITE_URL: ${{ steps.pages.outputs.base_url }}/
+        run: |
+          set -euo pipefail
+          if [ -z "${CONTENT_PASSWORD:-}" ]; then
+            echo >&2 "ERROR: repository secret CONTENT_PASSWORD is not configured"
+            exit 2
+          fi
+          python tools/check_source_layout.py
+          python tools/check_variable_security.py
+          python tools/check_hook_compat.py
+          mkdocs build --strict
+          mkdir -p site/editor
+          cp -a editor/app/. site/editor/
+          python tools/check_encrypted_build.py
+          python tools/check_variable_security.py
+          python tools/check_source_layout.py
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

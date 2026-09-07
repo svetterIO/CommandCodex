@@ -1,0 +1,14 @@
+.git
+.venv
+site
+__pycache__
+*.pyc
+.env
+
+# Never copy accidental plaintext protected authoring files into a container build.
+content/**/*.md
+plaintext/
+*.decrypted.md
+
+# Generated during builder stage.
+docs/assets/vendor/mermaid.min.js

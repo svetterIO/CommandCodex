@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify live command variables are memory-only and page defaults stay encrypted."""
+"""Verify live variables are schema-free in public JS and configured only after unlock."""
 from __future__ import annotations
 
 import json
@@ -10,14 +10,14 @@ from pathlib import Path
 
 SOURCE = Path("docs/assets/js/variables.js")
 CONTENT = Path("content")
-DOCS = Path("docs")
 SITE = Path("site")
 PASSWORD_ENV = "CONTENT_PASSWORD"
-TEMPLATE_ID = "commandcodex-variable-defaults"
-TOKENS = {
-    "IP", "PORT", "URL", "DOMAIN", "DC", "IFACE", "LHOST", "LPORT",
-    "USER", "PASS", "HASH", "TOKEN", "WORDLIST", "SHARE", "OUT",
-}
+TEMPLATE_ID = "commandcodex-variable-config"
+TOKEN_PATTERN = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
+CONFIG_PATTERN = re.compile(
+    rf'<template\s+id=["\']{re.escape(TEMPLATE_ID)}["\']\s*>(.*?)</template>',
+    flags=re.IGNORECASE | re.DOTALL,
+)
 
 if not SOURCE.is_file():
     raise SystemExit(f"Missing live-variable script: {SOURCE}")
@@ -30,20 +30,24 @@ for forbidden in (
     "PENTEST_VAR_DEFAULTS",
     "BUILTIN_DEFAULTS",
     "BUILD_DEFAULTS",
+    "const TOKENS",
+    "MASKED_TOKENS",
 ):
     if forbidden in text:
         raise SystemExit(
-            f"Live-variable script contains forbidden persistence/public-default primitive: {forbidden}"
+            f"Live-variable script contains forbidden persistence/public-schema primitive: {forbidden}"
         )
 
 for required in (
     TEMPLATE_ID,
+    "TOKEN_PATTERN",
+    "discoverTokens",
     "JSON.parse",
-    "MANUAL_OVERRIDES",
+    "manualOverrides",
     "Restore page defaults",
 ):
     if required not in text:
-        raise SystemExit(f"Live-variable script is missing encrypted-default support: {required}")
+        raise SystemExit(f"Live-variable script is missing dynamic encrypted-config support: {required}")
 
 for forbidden_path in (
     Path(".env.example"),
@@ -53,8 +57,59 @@ for forbidden_path in (
     if forbidden_path.exists():
         raise SystemExit(f"Legacy build-time variable-default artifact exists: {forbidden_path}")
 
-# Public documentation may mention the template syntax, but actual default values
-# are validated only from encrypted content sources below.
+validated_blocks = 0
+all_discovered_tokens: set[str] = set()
+password = os.environ.get(PASSWORD_ENV)
+if password:
+    sys.path.insert(0, str(Path("tools").resolve()))
+    from page_crypto import decrypt_source  # type: ignore
+
+    for source in CONTENT.rglob("*.md.enc.json"):
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        try:
+            clear = decrypt_source(payload, password).decode("utf-8")
+        except Exception as exc:
+            raise SystemExit(f"Could not decrypt {source} while validating variable config") from exc
+
+        discovered = set(TOKEN_PATTERN.findall(clear))
+        all_discovered_tokens.update(discovered)
+
+        for match in CONFIG_PATTERN.finditer(clear):
+            validated_blocks += 1
+            try:
+                config = json.loads(match.group(1).strip())
+            except Exception as exc:
+                raise SystemExit(f"Invalid encrypted variable-config JSON in {source}") from exc
+            if not isinstance(config, dict):
+                raise SystemExit(f"Encrypted variable config must be a JSON object in {source}")
+            all_discovered_tokens.update(config.keys())
+
+            for token, spec in config.items():
+                if not re.fullmatch(r"[A-Z][A-Z0-9_]*", token):
+                    raise SystemExit(f"Invalid encrypted variable name {token!r} in {source}")
+                if not isinstance(spec, dict):
+                    raise SystemExit(f"Encrypted config for {token} in {source} must be an object")
+                unknown_props = set(spec) - {"default", "secret"}
+                if unknown_props:
+                    raise SystemExit(
+                        f"Unsupported encrypted config properties for {token} in {source}: "
+                        + ", ".join(sorted(unknown_props))
+                    )
+                value = spec.get("default", "")
+                if value is not None and not isinstance(value, (str, int, float, bool)):
+                    raise SystemExit(f"Encrypted default for {token} in {source} must be scalar")
+                if "secret" in spec and not isinstance(spec["secret"], bool):
+                    raise SystemExit(f"Encrypted secret flag for {token} in {source} must be boolean")
+        del clear
+
+# Learn the real schema only from decrypted content, then ensure none of those names
+# were hardcoded as string literals in the public variable engine.
+for token in all_discovered_tokens:
+    literal = re.compile(rf"(['\"])({re.escape(token)})\1")
+    if literal.search(text):
+        raise SystemExit(
+            f"Public variable engine hardcodes a protected-page variable name: {token}"
+        )
 
 site_script = SITE / "assets" / "js" / "variables.js"
 if site_script.is_file():
@@ -65,60 +120,26 @@ if site_script.is_file():
         "PENTEST_VAR_",
         "BUILTIN_DEFAULTS",
         "BUILD_DEFAULTS",
+        "const TOKENS",
+        "MASKED_TOKENS",
     ):
         if forbidden in built:
             raise SystemExit(f"Generated variable script contains forbidden primitive: {forbidden}")
+    for token in all_discovered_tokens:
+        literal = re.compile(rf"(['\"])({re.escape(token)})\1")
+        if literal.search(built):
+            raise SystemExit(
+                f"Generated public variable engine hardcodes protected-page variable name: {token}"
+            )
 
-# If the build password is available, inspect encrypted sources in memory and validate
-# any per-page defaults block. The plaintext is never written to a file.
-validated_blocks = 0
-password = os.environ.get(PASSWORD_ENV)
-if password:
-    sys.path.insert(0, str(Path("tools").resolve()))
-    from page_crypto import decrypt_source  # type: ignore
-
-    pattern = re.compile(
-        rf'<template\s+id=["\']{re.escape(TEMPLATE_ID)}["\']\s*>(.*?)</template>',
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-
-    for source in CONTENT.rglob("*.md.enc.json"):
-        payload = json.loads(source.read_text(encoding="utf-8"))
-        try:
-            clear = decrypt_source(payload, password).decode("utf-8")
-        except Exception as exc:
-            raise SystemExit(f"Could not decrypt {source} while validating page defaults") from exc
-
-        for match in pattern.finditer(clear):
-            validated_blocks += 1
-            try:
-                defaults = json.loads(match.group(1).strip())
-            except Exception as exc:
-                raise SystemExit(f"Invalid encrypted variable-default JSON in {source}") from exc
-            if not isinstance(defaults, dict):
-                raise SystemExit(f"Encrypted variable defaults must be a JSON object in {source}")
-            unknown = set(defaults) - TOKENS
-            if unknown:
-                raise SystemExit(
-                    f"Encrypted variable defaults contain unsupported token(s) in {source}: "
-                    + ", ".join(sorted(unknown))
-                )
-            for token, value in defaults.items():
-                if value is not None and not isinstance(value, (str, int, float, bool)):
-                    raise SystemExit(
-                        f"Encrypted variable default {token} in {source} must be a scalar value"
-                    )
-        del clear
-
-# Once a site exists, raw defaults templates must not survive into generated HTML;
-# they are expected to be inside encryptcontent ciphertext until browser unlock.
 if SITE.is_dir():
     raw_template = f'<template id="{TEMPLATE_ID}">'.encode("utf-8")
     for page in SITE.rglob("*.html"):
         if raw_template in page.read_bytes():
-            raise SystemExit(f"Encrypted variable-default template leaked into generated HTML: {page}")
+            raise SystemExit(f"Encrypted variable config leaked into generated HTML: {page}")
 
 print(
-    "Live-variable security check passed: no public/build-time defaults or browser storage; "
-    f"validated {validated_blocks} encrypted page-default block(s)."
+    "Live-variable security check passed: public JS contains no fixed variable schema, "
+    "no browser persistence/build-time defaults; "
+    f"validated {validated_blocks} encrypted variable-config block(s)."
 )

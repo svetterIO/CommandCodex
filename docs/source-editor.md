@@ -12,8 +12,8 @@ The editor does not submit selected files or decrypted Markdown to the web serve
 
 Use the password that was used to encrypt the selected source. Use a long, unique password for real content.
 
-## Per-page variable defaults
+## Per-page variable configuration
 
-When editing a protected cheat sheet, you can keep its live-command defaults inside the encrypted Markdown using a `<template id="commandcodex-variable-defaults">` JSON block. The template is not rendered as page content; CommandCodex reads it only after unlock and pre-fills the Variables panel in browser memory.
+When editing a protected cheat sheet, keep its variable schema and defaults inside the encrypted Markdown using a `<template id="commandcodex-variable-config">` JSON block. Each entry can define a `default` value and `secret: true` for masked inputs.
 
-Do not place real defaults in `variables.js`, `.env`, or another public asset.
+`variables.js` contains no fixed variable names: after unlock it discovers `{{NAME}}` placeholders from that page and combines them with the encrypted configuration in browser memory. Do not place real variable names/defaults in public JavaScript, `.env`, or another public asset.

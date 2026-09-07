@@ -1,41 +1,164 @@
 (() => {
   "use strict";
 
-  const TOKENS = [
-    "IP", "PORT", "URL", "DOMAIN", "DC", "IFACE", "LHOST", "LPORT",
-    "USER", "PASS", "HASH", "TOKEN", "WORDLIST", "SHARE", "OUT"
-  ];
+  // Generic engine only. Variable names, defaults and secret-field metadata are
+  // discovered from the decrypted page; this public asset contains no page schema.
+  const CONFIG_TEMPLATE_ID = "commandcodex-variable-config";
+  const TOKEN_PATTERN = /\{\{([A-Z][A-Z0-9_]*)\}\}/g;
 
-  const DEFAULTS_TEMPLATE_ID = "commandcodex-variable-defaults";
-  const MASKED_TOKENS = new Set(["PASS", "HASH", "TOKEN"]);
+  let pageKey = null;
+  let tokens = [];
+  let config = new Map();
+  let values = new Map();
+  let pageDefaults = new Map();
+  let manualOverrides = new Set();
+  let configLoaded = false;
+  let defaultsApplied = false;
 
-  // Values and defaults live only in this JavaScript context. Page defaults are
-  // discovered from a <template> that itself lives inside the encrypted page body,
-  // so no values are present in variables.js or any other public defaults asset.
-  const VALUES = Object.fromEntries(TOKENS.map((token) => [token, ""]));
-  const PAGE_DEFAULTS = Object.fromEntries(TOKENS.map((token) => [token, ""]));
-  const MANUAL_OVERRIDES = new Set();
-  let defaultsLoaded = false;
-
-  function currentValues() {
-    return { ...VALUES };
+  function currentPageKey() {
+    return `${window.location.origin}${window.location.pathname}`;
   }
 
-  function substitute(template, values) {
-    return TOKENS.reduce((text, token) => {
-      const value = values[token];
-      if (value === undefined || value === null || value === "") return text;
-      return text.replace(new RegExp(`\\{\\{${token}\\}\\}`, "g"), String(value));
-    }, template);
+  function resetForPage(nextPageKey) {
+    pageKey = nextPageKey;
+    tokens = [];
+    config = new Map();
+    values = new Map();
+    pageDefaults = new Map();
+    manualOverrides = new Set();
+    configLoaded = false;
+    defaultsApplied = false;
+    document.getElementById("live-vars")?.remove();
+  }
+
+  function ensurePageState() {
+    const next = currentPageKey();
+    if (pageKey !== next) resetForPage(next);
+  }
+
+  function originalCommandText(code) {
+    return code.dataset.liveTemplate || code.textContent || "";
+  }
+
+  function discoverTokens() {
+    const discovered = [];
+    const seen = new Set();
+
+    document.querySelectorAll("pre > code").forEach((code) => {
+      const text = originalCommandText(code);
+      TOKEN_PATTERN.lastIndex = 0;
+      for (const match of text.matchAll(TOKEN_PATTERN)) {
+        const token = match[1];
+        if (!seen.has(token)) {
+          seen.add(token);
+          discovered.push(token);
+        }
+      }
+    });
+
+    return discovered;
+  }
+
+  function normalizeConfigSpec(token, raw) {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`configuration for ${token} must be an object`);
+    }
+
+    const allowed = new Set(["default", "secret"]);
+    for (const key of Object.keys(raw)) {
+      if (!allowed.has(key)) throw new Error(`unsupported property ${key} for ${token}`);
+    }
+
+    const defaultValue = raw.default;
+    if (
+      defaultValue !== undefined &&
+      defaultValue !== null &&
+      !["string", "number", "boolean"].includes(typeof defaultValue)
+    ) {
+      throw new Error(`default for ${token} must be a scalar value`);
+    }
+
+    if (raw.secret !== undefined && typeof raw.secret !== "boolean") {
+      throw new Error(`secret for ${token} must be true or false`);
+    }
+
+    return {
+      default: defaultValue === undefined || defaultValue === null ? "" : String(defaultValue),
+      secret: raw.secret === true,
+    };
+  }
+
+  function parsePageConfig() {
+    if (configLoaded) return;
+    configLoaded = true;
+
+    const template = document.getElementById(CONFIG_TEMPLATE_ID);
+    if (!template) return;
+
+    try {
+      const rawText = template.content ? template.content.textContent : template.textContent;
+      const parsed = JSON.parse((rawText || "").trim());
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("variable configuration must be a JSON object");
+      }
+
+      const next = new Map();
+      for (const [token, rawSpec] of Object.entries(parsed)) {
+        if (!/^[A-Z][A-Z0-9_]*$/.test(token)) {
+          throw new Error(`invalid variable name: ${token}`);
+        }
+        next.set(token, normalizeConfigSpec(token, rawSpec));
+      }
+      config = next;
+    } catch (error) {
+      console.warn("CommandCodex ignored invalid encrypted variable configuration:", error);
+      config = new Map();
+    } finally {
+      // Configuration is now represented as JavaScript state only.
+      template.remove();
+    }
+  }
+
+  function orderTokens(discovered) {
+    const ordered = [];
+
+    // The encrypted config defines the protected page's declared schema/order.
+    // Placeholders not declared there are still discovered automatically.
+    for (const token of config.keys()) ordered.push(token);
+    for (const token of discovered) {
+      if (!ordered.includes(token)) ordered.push(token);
+    }
+    return ordered;
+  }
+
+  function initializeValues() {
+    if (defaultsApplied) return;
+    defaultsApplied = true;
+
+    for (const token of tokens) {
+      const defaultValue = config.get(token)?.default || "";
+      pageDefaults.set(token, defaultValue);
+      if (!manualOverrides.has(token)) values.set(token, defaultValue);
+    }
+  }
+
+  function substitute(template) {
+    let text = template;
+    for (const token of tokens) {
+      const value = values.get(token) || "";
+      if (!value) continue;
+      text = text.split(`{{${token}}}`).join(value);
+    }
+    return text;
   }
 
   function refreshCommands() {
-    const values = currentValues();
     document.querySelectorAll("pre > code").forEach((code) => {
-      const text = code.dataset.liveTemplate || code.textContent;
-      if (!TOKENS.some((token) => text.includes(`{{${token}}}`))) return;
-      if (!code.dataset.liveTemplate) code.dataset.liveTemplate = text;
-      code.textContent = substitute(code.dataset.liveTemplate, values);
+      const original = originalCommandText(code);
+      TOKEN_PATTERN.lastIndex = 0;
+      if (!TOKEN_PATTERN.test(original)) return;
+      if (!code.dataset.liveTemplate) code.dataset.liveTemplate = original;
+      code.textContent = substitute(code.dataset.liveTemplate);
     });
   }
 
@@ -43,38 +166,8 @@
     const panel = document.getElementById("live-vars");
     if (!panel) return;
     panel.querySelectorAll("input[data-token]").forEach((input) => {
-      input.value = VALUES[input.dataset.token] || "";
+      input.value = values.get(input.dataset.token) || "";
     });
-  }
-
-  function parsePageDefaults() {
-    const template = document.getElementById(DEFAULTS_TEMPLATE_ID);
-    if (!template) return false;
-
-    try {
-      const raw = template.content
-        ? template.content.textContent
-        : template.textContent;
-      const parsed = JSON.parse(raw.trim());
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error("default payload must be a JSON object");
-      }
-
-      TOKENS.forEach((token) => {
-        const value = parsed[token];
-        PAGE_DEFAULTS[token] = value === undefined || value === null ? "" : String(value);
-        if (!MANUAL_OVERRIDES.has(token)) VALUES[token] = PAGE_DEFAULTS[token];
-      });
-      defaultsLoaded = true;
-
-      // The defaults are already in memory; remove their raw JSON from the live DOM.
-      template.remove();
-      return true;
-    } catch (error) {
-      console.warn("CommandCodex ignored invalid encrypted variable defaults:", error);
-      template.remove();
-      return false;
-    }
   }
 
   function field(token) {
@@ -85,15 +178,15 @@
     name.textContent = token;
 
     const input = document.createElement("input");
-    input.type = MASKED_TOKENS.has(token) ? "password" : "text";
+    input.type = config.get(token)?.secret ? "password" : "text";
     input.autocomplete = "off";
     input.spellcheck = false;
-    input.value = VALUES[token];
+    input.value = values.get(token) || "";
     input.dataset.token = token;
     input.setAttribute("aria-label", `Value for ${token}`);
     input.addEventListener("input", () => {
-      MANUAL_OVERRIDES.add(token);
-      VALUES[token] = input.value;
+      manualOverrides.add(token);
+      values.set(token, input.value);
       refreshCommands();
     });
 
@@ -102,36 +195,37 @@
   }
 
   function restorePageDefaults() {
-    MANUAL_OVERRIDES.clear();
-    TOKENS.forEach((token) => {
-      VALUES[token] = PAGE_DEFAULTS[token] || "";
-    });
+    manualOverrides.clear();
+    for (const token of tokens) values.set(token, pageDefaults.get(token) || "");
     syncPanelFields();
     refreshCommands();
   }
 
   function clearValues() {
-    // Mark every token as manually overridden so a later lifecycle event doesn't
-    // silently re-apply page defaults after the reader deliberately cleared them.
-    TOKENS.forEach((token) => {
-      MANUAL_OVERRIDES.add(token);
-      VALUES[token] = "";
-    });
+    // Treat empties as manual overrides so a subsequent Material lifecycle event
+    // cannot silently restore defaults during this unlocked page session.
+    for (const token of tokens) {
+      manualOverrides.add(token);
+      values.set(token, "");
+    }
     syncPanelFields();
     refreshCommands();
   }
 
   function mountPanel() {
+    const signature = JSON.stringify(tokens);
     const existing = document.getElementById("live-vars");
-    if (existing) {
+    if (existing && existing.dataset.tokenSignature === signature) {
       syncPanelFields();
       refreshCommands();
       return;
     }
+    existing?.remove();
 
     const panel = document.createElement("aside");
     panel.id = "live-vars";
     panel.className = "live-vars is-collapsed";
+    panel.dataset.tokenSignature = signature;
     panel.setAttribute("aria-label", "Live command variables");
 
     const header = document.createElement("div");
@@ -155,18 +249,18 @@
 
     const intro = document.createElement("p");
     intro.className = "live-vars__intro";
-    intro.textContent = defaultsLoaded
-      ? "Defaults came from this decrypted cheat sheet. Changes stay only in this browser tab's memory."
-      : "Values stay only in this browser tab's memory. Empty values leave placeholders unchanged.";
+    intro.textContent = config.size
+      ? "Variable definitions came from this decrypted cheat sheet. Changes stay only in this browser tab's memory."
+      : "Variables were discovered from this decrypted cheat sheet. Empty values leave placeholders unchanged.";
 
     const fields = document.createElement("div");
     fields.className = "live-vars__fields";
-    TOKENS.forEach((token) => fields.appendChild(field(token)));
+    for (const token of tokens) fields.appendChild(field(token));
 
     const actions = document.createElement("div");
     actions.className = "live-vars__actions";
 
-    if (defaultsLoaded) {
+    if (config.size) {
       const restore = document.createElement("button");
       restore.type = "button";
       restore.textContent = "Restore page defaults";
@@ -185,21 +279,19 @@
     refreshCommands();
   }
 
-  function hasLiveCommands() {
-    return Array.from(document.querySelectorAll("pre > code")).some((code) =>
-      TOKENS.some((token) => (code.dataset.liveTemplate || code.textContent).includes(`{{${token}}}`))
-    );
-  }
-
   function init() {
-    // Protected command blocks and their defaults do not exist until encryptcontent
-    // unlocks the page, so neither defaults nor the panel are exposed before then.
-    if (!hasLiveCommands()) {
+    ensurePageState();
+
+    const discovered = discoverTokens();
+    if (!discovered.length) {
       document.getElementById("live-vars")?.remove();
       return;
     }
 
-    if (!defaultsLoaded) parsePageDefaults();
+    // Protected configuration is not present until encryptcontent unlocks the page.
+    parsePageConfig();
+    tokens = orderTokens(discovered);
+    initializeValues();
     mountPanel();
     syncPanelFields();
     refreshCommands();

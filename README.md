@@ -160,34 +160,26 @@ The workflow uses the Node-24-compatible GitHub Pages action generations: `actio
 
 ## Live variables
 
-Command blocks may use:
+Variable names are **not hardcoded in public JavaScript**. After a protected page is unlocked, `variables.js` scans the decrypted command blocks for placeholders matching `{{NAME}}` and builds the Variables panel dynamically. A different cheat sheet may therefore use a completely different variable schema without changing JavaScript.
 
-```text
-{{IP}} {{PORT}} {{URL}} {{DOMAIN}} {{DC}} {{IFACE}} {{LHOST}} {{LPORT}}
-{{USER}} {{PASS}} {{HASH}} {{TOKEN}} {{WORDLIST}} {{SHARE}} {{OUT}}
-```
-
-The Variables panel is created only after a protected page has been unlocked and command blocks are present. A protected cheat sheet may optionally embed its own default values inside the **encrypted Markdown body** with this non-rendering template:
+A protected cheat sheet may optionally define defaults and secret-field behavior inside its **encrypted Markdown body**:
 
 ```html
-<template id="commandcodex-variable-defaults">
+<template id="commandcodex-variable-config">
 {
-  "IP": "<page-specific value>",
-  "PORT": "<page-specific value>",
-  "OUT": "<page-specific value>"
+  "TARGET": {"default": "", "secret": false},
+  "CREDENTIAL": {"default": "", "secret": true}
 }
 </template>
 ```
 
-Only supported tokens need to be present. Because the template is part of the protected Markdown, its values are encrypted together with the rest of the cheat sheet and do not appear in `variables.js`, `.env`, a generated defaults asset, clear search data, or pre-unlock page HTML. `variables.js` discovers the template only after the page is decrypted, copies the values into browser memory, then removes the raw template from the live DOM.
+The names above are documentation-only examples. At runtime, the encrypted configuration defines the page's declared variable schema and preferred panel order. Any additional `{{NAME}}` placeholders found in decrypted command blocks are discovered automatically and added with empty defaults. Each encrypted config entry can provide an optional default and whether its input is masked.
 
-The bundled Nmap sheet now contains encrypted page defaults, so its Variables panel is pre-filled immediately after unlock. Manual edits take priority over those defaults for the current browser session. **Restore page defaults** reapplies the encrypted defaults, while **Clear all values** deliberately overrides them with empty values so placeholders remain visible.
+Because the configuration is part of protected Markdown, the real variable names, defaults and masking metadata for a cheat sheet are encrypted together with the page. They do not appear in `variables.js`, `.env`, a generated defaults asset, clear search data, or pre-unlock page HTML. After unlock, the configuration is parsed into browser memory and its raw `<template>` is removed from the live DOM.
 
-Reader-entered values and decrypted defaults are held only in the current browser tab's JavaScript memory and are never written to `localStorage`, `sessionStorage`, IndexedDB, a generated defaults file, or the build output. Reloading/closing the tab clears the reader-entered values; the encrypted defaults are read again only after the page is unlocked again.
+Manual edits take priority over page defaults for the current unlocked page session. **Restore page defaults** reapplies the encrypted defaults, while **Clear all values** keeps every discovered placeholder empty for that session. Reader-entered values and decrypted defaults are never written to `localStorage`, `sessionStorage`, IndexedDB, a generated defaults file, or build output. Reloading/closing the tab clears the reader-entered values.
 
-The earlier `PENTEST_VAR_*`, `var-defaults.js`, and `.env.example` build-default mechanism remains intentionally removed. Build-time injection of command-variable values is incompatible with an encrypted static site because those values would become publicly retrievable assets.
-
-`PASS`, `HASH`, and `TOKEN` fields are masked in the panel. Defaults for those fields are protected by page encryption like every other page default, but real credentials should still be treated as sensitive browser-memory data after unlock.
+The earlier build-time variable-default mechanism remains intentionally removed. Build-time injection would make values publicly retrievable from a static deployment.
 
 The command-variable implementation is separate from page decryption state. Dynamic encrypted search in the currently pinned `mkdocs-encryptcontent-plugin`/Material integration requires temporary decrypted page keys in browser `sessionStorage` after unlock; `remember_password` remains disabled, and command-variable values are never written there. Closing the tab clears that session state.
 

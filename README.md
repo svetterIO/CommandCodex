@@ -199,7 +199,7 @@ python tools/check_variable_security.py
 python tools/check_source_layout.py
 ```
 
-The checks verify protected marker/source pairing, memory-only live variables, encrypted per-page defaults (with no public/build-time defaults or browser persistence), Material search compatibility, encrypted page/search artifacts, absence of protected entries in the clear search index, editor self-containment, and source-derived plaintext leak probes generated only in RAM.
+The checks verify protected marker/source pairing, memory-only live variables, encrypted per-page defaults (with no public/build-time defaults or browser persistence), Material search compatibility, encrypted page/search artifacts, absence of protected entries in the clear search index, editor self-containment, and source-derived plaintext leak probes generated only in RAM. Generic control-plane markers used by the public editor (for example the variable-config `<template>` wrapper itself) are narrowly excluded from leak probes; variable names, defaults, commands and protected prose remain covered.
 
 ## Important boundary
 

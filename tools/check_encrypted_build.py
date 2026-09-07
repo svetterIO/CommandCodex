@@ -121,6 +121,47 @@ password = os.environ.get(PASSWORD_ENV)
 if not password:
     raise SystemExit(f"{PASSWORD_ENV} is required for the in-memory leakage check")
 
+# Some protocol/control-plane syntax is intentionally public because the generic
+# browser editor and variable engine must know how to recognize it. Do not treat
+# those exact wrapper lines as confidential source probes. Keep this allowlist
+# deliberately tiny: variable names, defaults, commands and prose are NOT exempt.
+PUBLIC_SOURCE_PROTOCOL_LINES = {
+    '<template id="commandcodex-variable-config">',
+    '</template>',
+}
+
+
+def _source_probe_variants(raw_line: str) -> set[bytes]:
+    source_line = raw_line.strip()
+    if not source_line or source_line.startswith("```"):
+        return set()
+    if source_line in PUBLIC_SOURCE_PROTOCOL_LINES:
+        return set()
+
+    variants = {source_line}
+    structural = re.sub(r"^(?:#{1,6}|>|[-+*]|\d+[.)])\s+", "", source_line).strip()
+    if structural:
+        variants.add(structural)
+    delimiter_free = re.sub(r"[`*_~]", "", structural).strip()
+    if delimiter_free:
+        variants.add(delimiter_free)
+
+    result: set[bytes] = set()
+    for value in variants:
+        if len(value) < 20:
+            continue
+        for representation in (value, html.escape(value, quote=False)):
+            result.add(representation.encode("utf-8"))
+    return result
+
+
+# Regression guard for the GitHub Pages false positive: the generic template
+# marker is public API, while actual protected content must still generate probes.
+if _source_probe_variants('<template id="commandcodex-variable-config">'):
+    raise SystemExit("Public variable-config protocol marker unexpectedly became a leak probe")
+if not _source_probe_variants('synthetic protected prose regression probe 0123456789'):
+    raise SystemExit("Leak-probe generator stopped covering ordinary protected prose")
+
 probes: set[bytes] = set()
 for _, source, _, _ in protected_pages:
     payload = json.loads(source.read_text(encoding="utf-8"))
@@ -130,21 +171,7 @@ for _, source, _, _ in protected_pages:
         raise SystemExit(f"Could not decrypt {source} for leakage verification") from exc
 
     for raw_line in protected_text.splitlines():
-        source_line = raw_line.strip()
-        if not source_line or source_line.startswith("```"):
-            continue
-        variants = {source_line}
-        structural = re.sub(r"^(?:#{1,6}|>|[-+*]|\d+[.)])\s+", "", source_line).strip()
-        if structural:
-            variants.add(structural)
-        delimiter_free = re.sub(r"[`*_~]", "", structural).strip()
-        if delimiter_free:
-            variants.add(delimiter_free)
-        for value in variants:
-            if len(value) < 20:
-                continue
-            for representation in (value, html.escape(value, quote=False)):
-                probes.add(representation.encode("utf-8"))
+        probes.update(_source_probe_variants(raw_line))
     del protected_text
 
 for path in SITE.rglob("*"):

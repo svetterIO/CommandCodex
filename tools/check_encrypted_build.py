@@ -71,6 +71,8 @@ for rel, source, output, location in protected_pages:
     )
     if not match or match.group(1).count(";") != 1:
         raise SystemExit(f"Protected page {rel} does not contain the expected ciphertext bundle")
+    if '<template id="commandcodex-variable-defaults">' in page_html:
+        raise SystemExit(f"Protected page {rel} leaked raw variable defaults outside ciphertext")
 
 # Home is intentionally public and must not accidentally be globally encrypted.
 public_home = (SITE / "index.html").read_text(encoding="utf-8")

@@ -12,4 +12,5 @@ if (!bad) throw new Error('Wrong password unexpectedly decrypted');
 const bundled = JSON.parse(await fs.readFile(new URL('../../content/cheatsheets/nmap.md.enc.json', import.meta.url), 'utf8'));
 const bundledText = await decryptPayload(bundled, 'passw0rd');
 if (!bundledText.startsWith('# Nmap')) throw new Error('Bundled encrypted source is not editor-compatible');
+if (!bundledText.includes('id="commandcodex-variable-defaults"')) throw new Error('Bundled encrypted source is missing encrypted page defaults');
 console.log('Browser crypto compatibility test passed.');

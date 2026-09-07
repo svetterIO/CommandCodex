@@ -6,10 +6,16 @@
     "USER", "PASS", "HASH", "TOKEN", "WORDLIST", "SHARE", "OUT"
   ];
 
-  // Live values intentionally exist only in this JavaScript context.
-  // They are never pre-seeded, written to browser storage, or emitted at build time.
-  const VALUES = Object.fromEntries(TOKENS.map((token) => [token, ""]));
+  const DEFAULTS_TEMPLATE_ID = "commandcodex-variable-defaults";
   const MASKED_TOKENS = new Set(["PASS", "HASH", "TOKEN"]);
+
+  // Values and defaults live only in this JavaScript context. Page defaults are
+  // discovered from a <template> that itself lives inside the encrypted page body,
+  // so no values are present in variables.js or any other public defaults asset.
+  const VALUES = Object.fromEntries(TOKENS.map((token) => [token, ""]));
+  const PAGE_DEFAULTS = Object.fromEntries(TOKENS.map((token) => [token, ""]));
+  const MANUAL_OVERRIDES = new Set();
+  let defaultsLoaded = false;
 
   function currentValues() {
     return { ...VALUES };
@@ -17,7 +23,6 @@
 
   function substitute(template, values) {
     return TOKENS.reduce((text, token) => {
-      const placeholder = `{{${token}}}`;
       const value = values[token];
       if (value === undefined || value === null || value === "") return text;
       return text.replace(new RegExp(`\\{\\{${token}\\}\\}`, "g"), String(value));
@@ -32,6 +37,44 @@
       if (!code.dataset.liveTemplate) code.dataset.liveTemplate = text;
       code.textContent = substitute(code.dataset.liveTemplate, values);
     });
+  }
+
+  function syncPanelFields() {
+    const panel = document.getElementById("live-vars");
+    if (!panel) return;
+    panel.querySelectorAll("input[data-token]").forEach((input) => {
+      input.value = VALUES[input.dataset.token] || "";
+    });
+  }
+
+  function parsePageDefaults() {
+    const template = document.getElementById(DEFAULTS_TEMPLATE_ID);
+    if (!template) return false;
+
+    try {
+      const raw = template.content
+        ? template.content.textContent
+        : template.textContent;
+      const parsed = JSON.parse(raw.trim());
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("default payload must be a JSON object");
+      }
+
+      TOKENS.forEach((token) => {
+        const value = parsed[token];
+        PAGE_DEFAULTS[token] = value === undefined || value === null ? "" : String(value);
+        if (!MANUAL_OVERRIDES.has(token)) VALUES[token] = PAGE_DEFAULTS[token];
+      });
+      defaultsLoaded = true;
+
+      // The defaults are already in memory; remove their raw JSON from the live DOM.
+      template.remove();
+      return true;
+    } catch (error) {
+      console.warn("CommandCodex ignored invalid encrypted variable defaults:", error);
+      template.remove();
+      return false;
+    }
   }
 
   function field(token) {
@@ -49,6 +92,7 @@
     input.dataset.token = token;
     input.setAttribute("aria-label", `Value for ${token}`);
     input.addEventListener("input", () => {
+      MANUAL_OVERRIDES.add(token);
       VALUES[token] = input.value;
       refreshCommands();
     });
@@ -57,14 +101,30 @@
     return wrapper;
   }
 
-  function clearValues() {
+  function restorePageDefaults() {
+    MANUAL_OVERRIDES.clear();
     TOKENS.forEach((token) => {
+      VALUES[token] = PAGE_DEFAULTS[token] || "";
+    });
+    syncPanelFields();
+    refreshCommands();
+  }
+
+  function clearValues() {
+    // Mark every token as manually overridden so a later lifecycle event doesn't
+    // silently re-apply page defaults after the reader deliberately cleared them.
+    TOKENS.forEach((token) => {
+      MANUAL_OVERRIDES.add(token);
       VALUES[token] = "";
     });
+    syncPanelFields();
+    refreshCommands();
   }
 
   function mountPanel() {
-    if (document.getElementById("live-vars")) {
+    const existing = document.getElementById("live-vars");
+    if (existing) {
+      syncPanelFields();
       refreshCommands();
       return;
     }
@@ -95,7 +155,9 @@
 
     const intro = document.createElement("p");
     intro.className = "live-vars__intro";
-    intro.textContent = "Values stay only in this browser tab's memory. Empty values leave placeholders unchanged.";
+    intro.textContent = defaultsLoaded
+      ? "Defaults came from this decrypted cheat sheet. Changes stay only in this browser tab's memory."
+      : "Values stay only in this browser tab's memory. Empty values leave placeholders unchanged.";
 
     const fields = document.createElement("div");
     fields.className = "live-vars__fields";
@@ -104,16 +166,20 @@
     const actions = document.createElement("div");
     actions.className = "live-vars__actions";
 
-    const reset = document.createElement("button");
-    reset.type = "button";
-    reset.textContent = "Clear all values";
-    reset.addEventListener("click", () => {
-      clearValues();
-      panel.remove();
-      mountPanel();
-    });
+    if (defaultsLoaded) {
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.textContent = "Restore page defaults";
+      restore.addEventListener("click", restorePageDefaults);
+      actions.appendChild(restore);
+    }
 
-    actions.appendChild(reset);
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.textContent = "Clear all values";
+    clear.addEventListener("click", clearValues);
+    actions.appendChild(clear);
+
     panel.append(header, intro, fields, actions);
     document.body.appendChild(panel);
     refreshCommands();
@@ -126,13 +192,16 @@
   }
 
   function init() {
-    // Protected command blocks do not exist until encryptcontent unlocks the page.
-    // The panel therefore stays absent before decryption.
+    // Protected command blocks and their defaults do not exist until encryptcontent
+    // unlocks the page, so neither defaults nor the panel are exposed before then.
     if (!hasLiveCommands()) {
       document.getElementById("live-vars")?.remove();
       return;
     }
+
+    if (!defaultsLoaded) parsePageDefaults();
     mountPanel();
+    syncPanelFields();
     refreshCommands();
   }
 

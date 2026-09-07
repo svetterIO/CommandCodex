@@ -167,11 +167,27 @@ Command blocks may use:
 {{USER}} {{PASS}} {{HASH}} {{TOKEN}} {{WORDLIST}} {{SHARE}} {{OUT}}
 ```
 
-The Variables panel is created only after a protected page has been unlocked and command blocks are present. It ships with **no values**: unset variables stay visible as placeholders such as `{{IP}}`. Values entered by the reader are held only in the current browser tab's JavaScript memory and are never written to `localStorage`, `sessionStorage`, IndexedDB, a generated defaults file, or the build output. Reloading/closing the tab clears them.
+The Variables panel is created only after a protected page has been unlocked and command blocks are present. A protected cheat sheet may optionally embed its own default values inside the **encrypted Markdown body** with this non-rendering template:
 
-The earlier `PENTEST_VAR_*`, `var-defaults.js`, and `.env.example` build-default mechanism has intentionally been removed. Build-time injection of command-variable values is incompatible with an encrypted static site because those values would become publicly retrievable assets.
+```html
+<template id="commandcodex-variable-defaults">
+{
+  "IP": "<page-specific value>",
+  "PORT": "<page-specific value>",
+  "OUT": "<page-specific value>"
+}
+</template>
+```
 
-`PASS`, `HASH`, and `TOKEN` fields are masked in the panel, and **Clear all values** removes every in-memory value immediately.
+Only supported tokens need to be present. Because the template is part of the protected Markdown, its values are encrypted together with the rest of the cheat sheet and do not appear in `variables.js`, `.env`, a generated defaults asset, clear search data, or pre-unlock page HTML. `variables.js` discovers the template only after the page is decrypted, copies the values into browser memory, then removes the raw template from the live DOM.
+
+The bundled Nmap sheet now contains encrypted page defaults, so its Variables panel is pre-filled immediately after unlock. Manual edits take priority over those defaults for the current browser session. **Restore page defaults** reapplies the encrypted defaults, while **Clear all values** deliberately overrides them with empty values so placeholders remain visible.
+
+Reader-entered values and decrypted defaults are held only in the current browser tab's JavaScript memory and are never written to `localStorage`, `sessionStorage`, IndexedDB, a generated defaults file, or the build output. Reloading/closing the tab clears the reader-entered values; the encrypted defaults are read again only after the page is unlocked again.
+
+The earlier `PENTEST_VAR_*`, `var-defaults.js`, and `.env.example` build-default mechanism remains intentionally removed. Build-time injection of command-variable values is incompatible with an encrypted static site because those values would become publicly retrievable assets.
+
+`PASS`, `HASH`, and `TOKEN` fields are masked in the panel. Defaults for those fields are protected by page encryption like every other page default, but real credentials should still be treated as sensitive browser-memory data after unlock.
 
 The command-variable implementation is separate from page decryption state. Dynamic encrypted search in the currently pinned `mkdocs-encryptcontent-plugin`/Material integration requires temporary decrypted page keys in browser `sessionStorage` after unlock; `remember_password` remains disabled, and command-variable values are never written there. Closing the tab clears that session state.
 
@@ -191,7 +207,7 @@ python tools/check_variable_security.py
 python tools/check_source_layout.py
 ```
 
-The checks verify protected marker/source pairing, memory-only live variables (no defaults or browser storage), Material search compatibility, encrypted page/search artifacts, absence of protected entries in the clear search index, editor self-containment, and source-derived plaintext leak probes generated only in RAM.
+The checks verify protected marker/source pairing, memory-only live variables, encrypted per-page defaults (with no public/build-time defaults or browser persistence), Material search compatibility, encrypted page/search artifacts, absence of protected entries in the clear search index, editor self-containment, and source-derived plaintext leak probes generated only in RAM.
 
 ## Important boundary
 

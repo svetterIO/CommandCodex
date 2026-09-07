@@ -84,7 +84,10 @@
 
 .live-vars__actions {
   margin-top: 0.7rem;
-  text-align: right;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
 }
 
 @media (max-width: 44rem) {

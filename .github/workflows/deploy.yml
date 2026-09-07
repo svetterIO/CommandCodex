@@ -21,9 +21,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Verify GitHub Pages is enabled
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o /tmp/pages-site.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/pages")"
+
+          if [ "${status}" = "404" ]; then
+            echo "::error title=GitHub Pages is not enabled::Open repository Settings → Pages → Build and deployment → Source, select 'GitHub Actions', save it, then re-run this workflow."
+            exit 1
+          fi
+
+          if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
+            echo "::error title=Unable to query GitHub Pages::GitHub API returned HTTP ${status}."
+            cat /tmp/pages-site.json || true
+            exit 1
+          fi
+
       - name: Configure GitHub Pages
         id: pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -82,7 +105,7 @@ jobs:
           python tools/check_source_layout.py
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
@@ -95,4 +118,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

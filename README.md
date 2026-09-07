@@ -149,8 +149,12 @@ Dynamic search is intercepted in memory. The normal search plugin writes only pu
 
 1. Push this repository to GitHub.
 2. Add a repository Actions secret named `CONTENT_PASSWORD`. For the bundled demo source, use `passw0rd`.
-3. In **Settings → Pages**, set the source to **GitHub Actions**.
+3. **Before the first workflow run**, open **Settings → Pages → Build and deployment → Source** and select **GitHub Actions**. GitHub must create/enable the Pages site once before `actions/configure-pages` can query it.
 4. Push to `main` or run **Deploy CommandCodex** manually.
+
+If the workflow reports **“Get Pages site failed … Not Found”**, Pages has not yet been enabled for that repository. Set **Settings → Pages → Source → GitHub Actions** and re-run the workflow. The workflow also has a preflight check that now reports this condition with a direct error message before the Pages action runs.
+
+The workflow uses the Node-24-compatible GitHub Pages action generations: `actions/configure-pages@v6`, `actions/upload-pages-artifact@v5`, and `actions/deploy-pages@v5`. The `node-version: "22"` setting is only the Node.js version used to build MkDocs Material; it is separate from the runtime used internally by GitHub Actions.
 
 `.github/workflows/deploy.yml` runs the same editor crypto tests, source-layout checks, strict MkDocs build, encrypted-search checks and protected-source leak probes used by the Podman image build. It uploads only the generated `site/` directory, including the integrated static editor under `site/editor/`.
 

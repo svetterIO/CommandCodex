@@ -158,6 +158,8 @@ The workflow uses the Node-24-compatible GitHub Pages action generations: `actio
 
 `.github/workflows/deploy.yml` runs the same editor crypto tests, source-layout checks, strict MkDocs build, encrypted-search checks and protected-source leak probes used by the Podman image build. It uploads only the generated `site/` directory, including the integrated static editor under `site/editor/`.
 
+[Github Pages Link](https://svetterio.github.io/CommandCodex)
+
 ## Live variables
 
 Variable names are **not hardcoded in public JavaScript**. After a protected page is unlocked, `variables.js` scans the decrypted command blocks for placeholders matching `{{NAME}}` and builds the Variables panel dynamically. A different cheat sheet may therefore use a completely different variable schema without changing JavaScript.
